@@ -5,8 +5,19 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use parser::parse_request;
 use std::fs;
+use mime_guess::from_path;
 
-fn read_file(file_path: &str) -> Result<String, std::io::Error>{
+fn get_mime(file_path: String) -> Option<String>{
+    from_path(file_path).first_raw().map(|mime| mime.to_string())
+}
+fn sanitize_path(input_path: &str) -> bool {
+    // Check for path traversal
+    if input_path.contains("..") {
+        return false;
+    }
+    return true
+}
+fn read_file(file_path: &String) -> Result<String, std::io::Error>{
     let content = fs::read_to_string(file_path);
     content
 }
@@ -37,12 +48,33 @@ async fn handle_client(socket: &mut TcpStream) -> Result<(), Box<dyn  std::error
     let Ok((method, path, headers)) = parse_request(&buffer[..n] )else { return Ok(()) };
     let file_path = format!("html{}", path);
     println!("{}", file_path);
-    let file = read_file(&file_path).expect("File not found");
-    let response = format!(
-      "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
-        file.len(),
-        file
-    );
-    socket.write_all(response.as_bytes()).await?;
+    match sanitize_path(&file_path) {
+       true => {
+            println!("Sanitized path: {:?}", file_path);
+            match read_file(&file_path){
+                Ok(file) => {
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
+                        get_mime(file_path).unwrap().to_string(),
+                        file.len(),
+                        file
+                    );
+                    println!("{}", response);
+                    socket.write_all(response.as_bytes()).await?;
+                }
+                Err(e) => {
+                    let response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 21\r\n\r\n<h>File not found</h>";
+                    println!("{}", e);
+                    socket.write_all(response.as_bytes()).await?;
+                }
+            }
+        }
+        false => {
+            let response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 21\r\n\r\n<h>File not found</h>";
+            socket.write_all(response.as_bytes()).await?;
+        }
+    }
+
+
     Ok(())
 }
