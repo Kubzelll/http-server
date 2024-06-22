@@ -55,8 +55,17 @@ async fn handle_client(socket: &mut TcpStream) -> Result<(), Box<dyn  std::error
     println!("{}", file_path);
     match sanitize_path(&file_path) {
        true => {
-            println!("Sanitized path: {:?}", file_path);
-            let mime_type = get_mime(&file_path).unwrap().to_string();
+           println!("Sanitized path: {:?}", file_path);
+//           let mime_type = get_mime(&file_path).unwrap().to_string();
+           let mut mime_type = String::new();
+           let mut mime_type_display = get_mime(&file_path);
+           if mime_type_display == Option::None{
+               let response = "HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\nContent-Length: 21\r\n\r\n<h>File not found</h>";
+               socket.write(response.as_bytes()).await?;
+               return Ok(())
+           }else {
+               mime_type = mime_type_display.unwrap().to_string();
+           }
            if mime_type.contains("image") == true{
                println!("Handling as image");
                //handle the file as image
